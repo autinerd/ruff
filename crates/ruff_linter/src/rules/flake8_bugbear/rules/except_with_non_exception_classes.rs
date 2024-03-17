@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use ast::Operator;
 use ruff_python_ast::{self as ast, ExceptHandler, Expr};
 
 use ruff_diagnostics::{Diagnostic, Violation};
@@ -60,12 +61,51 @@ fn flatten_starred_iterables(expr: &Expr) -> Vec<&Expr> {
                 | Expr::List(ast::ExprList { elts, .. }) => {
                     exprs_to_process.append(&mut elts.iter().collect());
                 }
+                Expr::BinOp(ast::ExprBinOp { .. }) => {
+                    flattened_exprs.append(&mut process_tuple_addition(value));
+                }
                 _ => flattened_exprs.push(value),
             },
             _ => flattened_exprs.push(expr),
         }
     }
     flattened_exprs
+}
+
+fn process_tuple_addition(expr: &Expr) -> Vec<&Expr> {
+    let Expr::BinOp(ast::ExprBinOp {
+        left, op, right, ..
+    }) = expr
+    else {
+        return vec![expr];
+    };
+    let mut flattened_exprs: Vec<&Expr> = Vec::new();
+    match op {
+        Operator::Add => {
+            match left.as_ref() {
+                Expr::Tuple(ast::ExprTuple { .. }) | Expr::BinOp(ast::ExprBinOp { .. }) => {
+                    flattened_exprs.append(&mut process_binop_and_tuple(left));
+                }
+                _ => flattened_exprs.push(left),
+            }
+            match right.as_ref() {
+                Expr::Tuple(ast::ExprTuple { .. }) | Expr::BinOp(ast::ExprBinOp { .. }) => {
+                    flattened_exprs.append(&mut process_binop_and_tuple(right));
+                }
+                _ => flattened_exprs.push(right),
+            }
+        }
+        _ => flattened_exprs.push(expr),
+    }
+    flattened_exprs
+}
+
+fn process_binop_and_tuple(expr: &Expr) -> Vec<&Expr> {
+    match expr {
+        Expr::Tuple(ast::ExprTuple { .. }) => return flatten_starred_iterables(expr),
+        Expr::BinOp(ast::ExprBinOp { .. }) => return process_tuple_addition(expr),
+        _ => vec![expr],
+    }
 }
 
 /// B030
@@ -78,7 +118,7 @@ pub(crate) fn except_with_non_exception_classes(
     let Some(type_) = type_ else {
         return;
     };
-    for expr in flatten_starred_iterables(type_) {
+    for expr in process_binop_and_tuple(type_) {
         if !matches!(
             expr,
             Expr::Subscript(_) | Expr::Attribute(_) | Expr::Name(_) | Expr::Call(_),

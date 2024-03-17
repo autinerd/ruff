@@ -46,4 +46,11 @@ B030.py:33:29: B030 `except` handlers should only be exception classes or tuples
 34 |     pass
    |
 
-
+B030.py:102:35: B030 `except` handlers should only be exception classes or tuples of exception classes
+    |
+100 | try:
+101 |     ...
+102 | except ((EOFError,) + (ValueError,(ArithmeticError,))):  # error
+    |                                   ^^^^^^^^^^^^^^^^^^ B030
+103 |     ...
+    |
